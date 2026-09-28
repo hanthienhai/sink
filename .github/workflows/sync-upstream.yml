@@ -1,0 +1,45 @@
+# Đồng bộ nhánh master với bản phát hành mới nhất của miantiao-me/Sink.
+# Chỉ theo release tag, không theo từng commit, vì Workers Builds của
+# s.hanthienhai.com và go.costdesk.co tự triển khai mỗi khi master thay đổi.
+# Cần secret SYNC_TOKEN: fine-grained token cho repo này, Contents và Workflows ở mức Read and write.
+name: Sync upstream release
+
+on:
+  schedule:
+    - cron: "0 2 * * 1" # thứ Hai 09:00 giờ Việt Nam
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Merge latest upstream release
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh release view --repo miantiao-me/Sink --json tagName -q .tagName)
+          echo "Bản phát hành mới nhất: $TAG"
+          git remote add upstream https://github.com/miantiao-me/Sink.git
+          git fetch --no-tags upstream "refs/tags/$TAG:refs/tags/$TAG"
+          if git merge-base --is-ancestor "$TAG" HEAD; then
+            echo "master đã có $TAG, không cần đồng bộ."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit -m "Sync upstream $TAG" "$TAG"
+          git push origin HEAD:master
+          echo "Đã đồng bộ master lên $TAG." >> "$GITHUB_STEP_SUMMARY"
